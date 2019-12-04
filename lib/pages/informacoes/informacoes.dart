@@ -37,11 +37,11 @@ class _InformacoesState extends State<Informacoes> {
     }
 
     print(response);
+
   }
 
   @override
   Widget build(BuildContext context) {
-    platform.invokeMethod('info_bluth');
     return Scaffold(
       appBar: AppBar(
         title: Text("IRRIG8 - INFORMAÇÕES"),
@@ -49,8 +49,7 @@ class _InformacoesState extends State<Informacoes> {
         actions: <Widget>[
           IconButton(
             onPressed: () async {
-              String info = await platform.invokeMethod('info_bluth');
-              print(info);
+              await responseFromNativeCode();
             },
             icon: Icon(Icons.refresh),
           ),

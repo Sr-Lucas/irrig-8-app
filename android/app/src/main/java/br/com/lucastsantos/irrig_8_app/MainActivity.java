@@ -3,24 +3,21 @@ package br.com.lucastsantos.irrig_8_app;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
-import android.view.View;
-import java.io.InputStream;
-import java.io.OutputStream;
-import android.widget.Button;
-import android.widget.TextView;
+import android.os.Message;
+import android.util.Log;
 import android.widget.Toast;
 
-import java.nio.ByteBuffer;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.UUID;
 
 import app.akexorcist.bluetotohspp.library.BluetoothSPP;
-import app.akexorcist.bluetotohspp.library.BluetoothState;
-import app.akexorcist.bluetotohspp.library.DeviceList;
-import io.flutter.Log;
 import io.flutter.app.FlutterActivity;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugins.GeneratedPluginRegistrant;
@@ -29,7 +26,25 @@ public class MainActivity extends FlutterActivity {
 
   private static final String CHANNEL = "blue_channel";
 
+  private static final int ATIVA_BLUETOOTH = 1;
+  private static final int SOLICITA_CONEXAO = 2;
+  private static final int MESSAGE_READ = 3;
+
+  private static  String MAC = null;
+
+  Handler mHandler;
+  StringBuilder dadosBluetooth = new StringBuilder();
+
+  ConnectThread connectThread;
+
+  UUID ID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
+
   BluetoothSPP bluetooth;
+  BluetoothAdapter bluetoothAdapter;
+  BluetoothDevice device = null;
+  BluetoothSocket socket = null;
+
+  boolean conexao = false;
 
   @SuppressLint("HandlerLeak")
   @Override
@@ -40,33 +55,15 @@ public class MainActivity extends FlutterActivity {
 
     MethodChannel channel = new MethodChannel(getFlutterView(), CHANNEL);
 
+    bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-    bluetooth = new BluetoothSPP(this);
-
-    if (!bluetooth.isBluetoothAvailable()) {
-      Toast.makeText(getApplicationContext(), "Bluetooth is not available", Toast.LENGTH_SHORT).show();
-      finish();
+    if(bluetoothAdapter == null) {
+      Toast.makeText(getApplicationContext(), "Seu dispositivo não possui bluetooth", Toast.LENGTH_LONG).show();
+    } else if(!bluetoothAdapter.isEnabled()) {
+      Intent enableBluetook = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+      startActivityForResult(enableBluetook, ATIVA_BLUETOOTH);
     }
 
-    bluetooth.setBluetoothConnectionListener(new BluetoothSPP.BluetoothConnectionListener() {
-      public void onDeviceConnected(String name, String address) {
-        Toast.makeText(getApplicationContext(), "CONNECTED", Toast.LENGTH_SHORT).show();
-        bluetooth.setOnDataReceivedListener(new BluetoothSPP.OnDataReceivedListener() {
-          @Override
-          public void onDataReceived(byte[] data, String message) {
-            Toast.makeText(getApplicationContext(), "DATA", Toast.LENGTH_SHORT).show();
-          }
-        });
-      }
-
-      public void onDeviceDisconnected() {
-        Toast.makeText(getApplicationContext(), "DISCONNECTED", Toast.LENGTH_SHORT).show();
-      }
-
-      public void onDeviceConnectionFailed() {
-        Toast.makeText(getApplicationContext(), "FAILED", Toast.LENGTH_SHORT).show();
-      }
-    });
 
 
     channel.setMethodCallHandler(
@@ -88,81 +85,202 @@ public class MainActivity extends FlutterActivity {
                   onClickSendPercent(call.argument("percent"));
                   break;
                 case "turnOffAutomatic":
-                  onClickSendTurnOff();
+                  //onClickSendTurnOff();
                   break;
                 case "info_bluth":
-                  setBluetoothListeners();
+                  result.success(dadosBluetooth.substring(1, 10));
                   break;
               }
             }
     );
-  }
 
-  public void onStart() {
-    super.onStart();
-    if (!bluetooth.isBluetoothEnabled()) {
-      bluetooth.enable();
-    } else {
-      if (!bluetooth.isServiceAvailable()) {
-        bluetooth.setupService();
-        bluetooth.startService(BluetoothState.DEVICE_OTHER);
-      }
-    }
-  }
-
-  public void onDestroy() {
-    super.onDestroy();
-    bluetooth.stopService();
-  }
-
-  public void onActivityResult(int requestCode, int resultCode, Intent data) {
-    if (requestCode == BluetoothState.REQUEST_CONNECT_DEVICE) {
-      if (resultCode == Activity.RESULT_OK)
-        bluetooth.connect(data);
-    } else if (requestCode == BluetoothState.REQUEST_ENABLE_BT) {
-      if (resultCode == Activity.RESULT_OK) {
-        bluetooth.setupService();
-      } else {
-        Toast.makeText(getApplicationContext()
-                , "Bluetooth was not enabled."
-                , Toast.LENGTH_SHORT).show();
-        finish();
-      }
-    }
-  }
-
-  public void onClickBtnConnect() {
-    if (bluetooth.getServiceState() == BluetoothState.STATE_CONNECTED) {
-      bluetooth.disconnect();
-    } else {
-      Intent intent = new Intent(getApplicationContext(), DeviceList.class);
-      startActivityForResult(intent, BluetoothState.REQUEST_CONNECT_DEVICE);
-    }
-  }
-
-  public void onClickSendTurnOn() {
-      bluetooth.send("start", true);
-  }
-
-  public void onClickSendTurnOff() {
-      bluetooth.send("stop", true);
-  }
-
-  public  void onClickSendTime(String time) {
-    bluetooth.send("1;" + time, true);
-  }
-
-  public  void onClickSendPercent(String percent) {
-    bluetooth.send("2;" + percent, true);
-  }
-
-  private void setBluetoothListeners() {
-    bluetooth.setOnDataReceivedListener(new BluetoothSPP.OnDataReceivedListener() {
+    mHandler = new Handler() {
       @Override
-      public void onDataReceived(byte[] data, String msg) {
-          Toast.makeText(getApplicationContext(), "FAILED", Toast.LENGTH_SHORT).show();
+      public void handleMessage(Message msg) {
+
+        if(msg.what == MESSAGE_READ) {
+          String received = (String) msg.obj;
+          dadosBluetooth.append(received);
+
+          int endInfo = dadosBluetooth.indexOf("#");
+
+          if(endInfo > 0) {
+
+            String completedData = dadosBluetooth.substring(0,endInfo);
+
+            int sizeIndo = completedData.length();
+
+            if(dadosBluetooth.charAt(0) == '$') {
+              String finalData = dadosBluetooth.substring(1,sizeIndo);
+            }
+
+            //dadosBluetooth.delete(0,dadosBluetooth.length());
+          }
+
+        }
+
       }
-    });
+    };
+
   }
+
+  private void onClickSendPercent(String percent) {
+    if(conexao) {
+      connectThread.write("2;" + percent);
+    } else {
+      Toast.makeText(getApplicationContext(), "BLUETOOTH NAO CONECTADO", Toast.LENGTH_LONG).show();
+    }
+  }
+
+  private void onClickSendTurnOff() {
+
+    if(conexao) {
+      connectThread.write("stop");
+    } else {
+      Toast.makeText(getApplicationContext(), "BLUETOOTH NAO CONECTADO", Toast.LENGTH_LONG).show();
+    }
+
+  }
+
+  private void onClickSendTurnOn() {
+
+    if(conexao) {
+      connectThread.write("start");
+    } else {
+      Toast.makeText(getApplicationContext(), "BLUETOOTH NAO CONECTADO", Toast.LENGTH_LONG).show();
+    }
+
+  }
+
+
+  private void onClickSendTime(String time) {
+
+    if(conexao) {
+      connectThread.write("1;" + time);
+    } else {
+      Toast.makeText(getApplicationContext(), "BLUETOOTH NAO CONECTADO", Toast.LENGTH_LONG).show();
+    }
+
+  }
+
+  private void onClickBtnConnect() {
+
+    if(conexao) {
+      //desconectar
+      try {
+        socket.close();
+        conexao = false;
+        Toast.makeText(getApplicationContext(), "BLUETOOTH FOI DESCONECTADO", Toast.LENGTH_LONG).show();
+      } catch (IOException ex) {
+        Toast.makeText(getApplicationContext(), "ERRO", Toast.LENGTH_LONG).show();
+      }
+    } else {
+      //conectar
+      Intent openList = new Intent(MainActivity.this, ListaDispositivos.class);
+      startActivityForResult(openList, SOLICITA_CONEXAO);
+    }
+
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    //super.onActivityResult(requestCode, resultCode, data);
+    switch (requestCode) {
+      case ATIVA_BLUETOOTH:
+        if(resultCode == Activity.RESULT_OK) {
+          Toast.makeText(getApplicationContext(), "O bluetooth foi ativado!", Toast.LENGTH_LONG).show();
+        } else {
+          Toast.makeText(getApplicationContext(), "Não foi possível ativar o bluetooth!", Toast.LENGTH_LONG).show();
+          finish();
+        }
+        break;
+      case SOLICITA_CONEXAO:
+        if(resultCode == Activity.RESULT_OK) {
+          MAC = data.getExtras().getString(ListaDispositivos.ENDERECO_MAC);
+
+          device = bluetoothAdapter.getRemoteDevice(MAC);
+
+          try {
+            socket = device.createRfcommSocketToServiceRecord(ID);
+            socket.connect();
+
+            conexao = true;
+
+            connectThread = new ConnectThread(socket);
+
+            Toast.makeText(getApplicationContext(), "BLUETOOTH CONECTADO", Toast.LENGTH_LONG).show();
+
+          } catch (IOException ex) {
+            conexao = false;
+            Toast.makeText(getApplicationContext(), "ERRO DURANTE A CONEXÃO COM BLUETOOTH", Toast.LENGTH_LONG).show();
+          }
+        } else {
+          Toast.makeText(getApplicationContext(), "Falha ao obter o MAC", Toast.LENGTH_LONG).show();
+        }
+        break;
+    }
+  }
+
+  private class ConnectThread extends Thread {
+    private  final InputStream inputStream;
+    private  final OutputStream outputStream;
+
+    public ConnectThread(BluetoothSocket socket) {
+      OutputStream outputStream1;
+      InputStream inputStream1;
+
+      inputStream1 = null;
+      outputStream1 = null;
+
+      InputStream tmpIn = null;
+      OutputStream tmpOut = null;
+
+      // Use a temporary object that is later assigned to mmSocket
+      // because mmSocket is final.
+      BluetoothSocket tmp = null;
+
+      try {
+        tmpIn = socket.getInputStream();
+        tmpOut = socket.getOutputStream();
+      } catch (IOException e) {
+        Log.e("conexao", "Socket's create() method failed", e);
+      }
+
+      inputStream1 = tmpIn;
+      outputStream1 = tmpOut;
+
+      this.inputStream = inputStream1;
+      this.outputStream = outputStream1;
+    }
+
+    public void run() {
+      byte[] buffer = new byte[1024];
+      int bytes;
+
+      while (true) {
+        try {
+          bytes = inputStream.read(buffer);
+
+          String data = new String(buffer,0,bytes);
+
+          mHandler.obtainMessage(MESSAGE_READ, bytes, -1, data).sendToTarget();
+        } catch (IOException ex) {
+          break;
+        }
+      }
+
+    }
+
+    public void write(String output) {
+      byte[] buffer = output.getBytes();
+      try {
+        outputStream.write(buffer);
+      } catch (IOException ex) {
+        Toast.makeText(getApplicationContext(), "ERRO AO ENVIAR COMANDO", Toast.LENGTH_LONG).show();
+      }
+    }
+
+  }
+
 
 }

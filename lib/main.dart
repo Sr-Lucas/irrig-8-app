@@ -102,19 +102,22 @@ class HomeScreen extends StatelessWidget {
                   )
                 ]),
               ),
-              HomeScreenButtom(
-                onTap: (){
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (context) => Informacoes()
-                  ));
-                },
-                buttonWidget: Row(mainAxisAlignment: MainAxisAlignment.center,children: <Widget>[
-                  Icon(Icons.info_outline, color: TEXT_COLOR, size: 20,),
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text("INFORMAÇÕES", style: TextStyle(color: TEXT_COLOR, fontSize: 20),),
-                  )
-                ]),
+              Visibility(
+                visible: false,
+                child: HomeScreenButtom(
+                  onTap: (){
+                    Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => Informacoes()
+                    ));
+                  },
+                  buttonWidget: Row(mainAxisAlignment: MainAxisAlignment.center,children: <Widget>[
+                    Icon(Icons.info_outline, color: TEXT_COLOR, size: 20,),
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Text("INFORMAÇÕES", style: TextStyle(color: TEXT_COLOR, fontSize: 20),),
+                    )
+                  ]),
+                ),
               ),
             ],
           ),
